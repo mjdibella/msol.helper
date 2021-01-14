@@ -46,7 +46,8 @@ function Restore-MSOLFedSetFromMetadata {
     param(
         [Parameter(Mandatory=$true,ParameterSetName="byFile")][string]$filename,
         [Parameter(Mandatory=$true,ParameterSetName="byUrl")][string]$Url,
-        [Parameter(Mandatory=$true)][string]$domain
+        [Parameter(Mandatory=$true)][string]$domain,
+        [Parameter(Mandatory=$false)][string]$brand
     )
     if ($filename -ne "") {
        $Metadata = Get-Content -Path $filename
@@ -55,14 +56,27 @@ function Restore-MSOLFedSetFromMetadata {
         $Metadata = Invoke-RestMethod -Uri $Url
     }
     [xml]$IdPMetadata = $Metadata
-        Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
+    Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
     if($?) {} else {
         Connect-MSOLService
     }
+    $federationSettings = New-Object PSObject
+    $federationSettings | Add-Member Noteproperty DomainName $domain
+    $federationSettings | Add-Member Noteproperty Authentication "Federated"
+    $federationSettings | Add-Member Noteproperty IssuerUri $IdPMetadata.EntityDescriptor.entityID
+    if ($brand -ne "") {
+        $federationSettings | Add-Member Noteproperty FederationBrandName $brand
+    } else {
+        $federationSettings | Add-Member Noteproperty FederationBrandName $domain
+    }
+    $federationSettings | Add-Member Noteproperty PassiveLogOnUri ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.SingleSignOnService | ? {$_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"} | % {$_.Location})
+    $federationSettings | Add-Member Noteproperty ActiveLogOnUri $federationSettings.PassiveLogOnUri
+    $federationSettings | Add-Member Noteproperty LogOffUri ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.SingleLogOutService | ? {$_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"} | % {$_.Location})
+    $federationSettings | Add-Member Noteproperty MetadataExchangeUri $IdPMetadata.EntityDescriptor.AdditionalMetadataLocation.'#text'
+    $federationSettings | Add-Member Noteproperty SigningCertificate ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.KeyDescriptor |  ? {$_.use -eq "signing"} | Select-Object -Last 1 | % {$_.KeyInfo.X509Data.X509Certificate})
     Set-MsolDomainAuthentication -DomainName $domain -Authentication Managed
-    Set-MsolDomainAuthentication -DomainName $domain -Authentication Federated -IssuerUri $IdPMetadata.EntityDescriptor.entityID `
-        -PassiveLogOnUri $federationSettings.$IdPMetadata.EntityDescriptor.IDPSSODescriptor.SingleSignOnService | ? {$_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"} | % {$_.Location} `
-        -ActiveLogOnUri $IdPMetadata.EntityDescriptor.IDPSSODescriptor.SingleSignOnService | ? {$_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-REDIRECT"} | % {$_.Location} `
-        -SigningCertificate $IdPMetadata.EntityDescriptor.IDPSSODescriptor.KeyDescriptor |  ? {$_.use -eq "signing"} | Select-Object -Last 1 | % {$_.KeyInfo.X509Data.X509Certificate}
+    Set-MsolDomainAuthentication -DomainName $federationSettings.DomainName -Authentication $federationSettings.Authentication -IssuerUri $federationSettings.IssuerUri `
+        -FederationBrandName $federationSettings.FederationBrandName -PassiveLogOnUri $federationSettings.PassiveLogOnUri `
+        -ActiveLogOnUri $federationSettings.ActiveLogOnUri -SigningCertificate $federationSettings.SigningCertificate
 }
 Export-ModuleMember -Function Restore-MSOLFedSetFromMetadata
