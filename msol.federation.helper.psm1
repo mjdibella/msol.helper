@@ -83,7 +83,7 @@ function Get-MSOLFederationScript {
     }
     $federationSettings | Add-Member Noteproperty DomainName $domain
     $federationSettings | Add-Member Noteproperty Authentication "Federated"
-    if ($brand -ne $null) {
+    if ($brand -ne "") {
         $federationSettings | Add-Member Noteproperty FederationBrandName $brand
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
@@ -92,7 +92,7 @@ function Get-MSOLFederationScript {
     write-output "Set-MsolDomainAuthentication -DomainName $($federationSettings.DomainName) ``"
     write-output "    -Authentication $($federationSettings.Authentication) ``"
     write-output "    -IssuerUri $($federationSettings.IssuerUri) ``"
-    write-output "    -FederationBrandName $($federationSettings.FederationBrandName) ``"
+    write-output "    -FederationBrandName `"$($federationSettings.FederationBrandName)`" ``"
     write-output "    -PassiveLogOnUri $($federationSettings.PassiveLogOnUri) ``"
     write-output "    -ActiveLogOnUri $($federationSettings.ActiveLogOnUri) ``"
     write-output "    -SigningCertificate $($federationSettings.SigningCertificate)"
@@ -118,7 +118,7 @@ function Restore-MSOLFedSetFromMetadata {
     }
     $federationSettings | Add-Member Noteproperty DomainName $domain
     $federationSettings | Add-Member Noteproperty Authentication "Federated"
-    if ($brand -ne $null) {
+    if ($brand -ne "") {
         $federationSettings | Add-Member Noteproperty FederationBrandName $brand
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
