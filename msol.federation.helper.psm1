@@ -95,6 +95,7 @@ function Get-MSOLFederationScript {
     write-output "    -FederationBrandName `"$($federationSettings.FederationBrandName)`" ``"
     write-output "    -PassiveLogOnUri $($federationSettings.PassiveLogOnUri) ``"
     write-output "    -ActiveLogOnUri $($federationSettings.ActiveLogOnUri) ``"
+    write-output "    -MetadataExchangeUri $($federationSettings.metadataExchangeUri) ``"
     write-output "    -SigningCertificate $($federationSettings.SigningCertificate)"
 }
 Export-ModuleMember -Function Get-MSOLFederationScript
@@ -126,7 +127,7 @@ function Restore-MSOLFedSetFromMetadata {
     Set-MsolDomainAuthentication -DomainName $domain -Authentication Managed
     Set-MsolDomainAuthentication -DomainName $federationSettings.DomainName -Authentication $federationSettings.Authentication -IssuerUri $federationSettings.IssuerUri `
         -FederationBrandName $federationSettings.FederationBrandName -PassiveLogOnUri $federationSettings.PassiveLogOnUri `
-        -ActiveLogOnUri $federationSettings.ActiveLogOnUri -SigningCertificate $federationSettings.SigningCertificate
+        -ActiveLogOnUri $federationSettings.ActiveLogOnUri -MetadataExchangeUri $federationSettings.metadataExchangeUri -SigningCertificate $federationSettings.SigningCertificate
 }
 Export-ModuleMember -Function Restore-MSOLFedSetFromMetadata
 
