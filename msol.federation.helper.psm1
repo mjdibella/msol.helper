@@ -131,3 +131,93 @@ function Restore-MSOLFedSetFromMetadata {
 }
 Export-ModuleMember -Function Restore-MSOLFedSetFromMetadata
 
+function ConvertTo-FederatedMailbox {
+    # Get-ADUser -filter "mail -like '*'" | ConvertTo-FederatedMailbox
+    # Get-MSOLUser | ConvertTo-FederatedMailbox
+    [cmdletbinding()]
+    param(
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true,ParameterSetName="byUPN")][string[]]$UserPrincipalName
+    )
+    begin {
+        Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
+        if($?) {} else {
+            Connect-MSOLService
+        }
+        Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
+        if($?) {
+            $MSOLConnected = $True
+        } else {
+            $MSOLConnected = $False
+        }
+    }
+    process {
+        if ($MSOLConnected -eq $True) {
+            foreach ($UPN in $UserPrincipalName) {
+                $ADFilter = "userPrincipalName -eq '$($UPN)'"
+                $ADUser = Get-ADUser -Filter $ADFilter -Properties mS-DS-ConsistencyGuid
+                if ($ADUser -eq $null) {
+                    Write-Warning "No AD user found for $UPN."
+                } else {
+                    if ($AdUser.'mS-DS-ConsistencyGuid' -eq $null) {
+                        $ImmutableId = $AdUser.ObjectGuid.Guid
+                    } else {
+                        $ImmutableId = ([GUID]$AdUser.'mS-DS-ConsistencyGuid').Guid
+                    }
+                    $MSOLUser = Get-MSOLUser -UserPrincipalName $UPN -ErrorAction SilentlyContinue
+                    if ($MSOLUser -eq $null) {
+                        Write-Warning "No MSOL user found for $UPN."
+                    } else {
+                        if ($MSOLUser.ImmutableId -ne $null) {
+                            Write-Warning "ImmutableID already set for $UPN."
+                        } else { 
+                            Set-MsolUser –UserPrincipalName $UPN –ImmutableID $ImmutableId
+                        }
+                    }
+                }       
+            }
+        }
+    }
+    end {}
+}
+Export-ModuleMember -Function ConvertTo-FederatedMailbox
+
+function Get-MSOLTenantName {
+    (Get-MSOLDomain | Where-Object {$_.Name -like '*.onmicrosoft.com' -and $_.Name -NotLike '*.mail.onmicrosoft.com'}).Name
+}
+Export-ModuleMember -Function Get-MSOLTenantName
+
+function ConvertTo-ManagedMailbox {
+    [cmdletbinding()]
+    param(
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true,ParameterSetName="byUPN")][string[]]$UserPrincipalName
+    )
+    begin {
+        Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
+        if($?) {} else {
+            Connect-MSOLService
+        }
+        Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
+        if($?) {
+            $MSOLConnected = $True
+        } else {
+            $MSOLConnected = $False
+        }
+    }
+    process {
+        if ($MSOLConnected -eq $True) {
+            foreach ($UPN in $UserPrincipalName) {
+                $MSOLUser = Get-MSOLUser -UserPrincipalName $UPN -ErrorAction SilentlyContinue
+                if ($MSOLUser -eq $null) {
+                    Write-Warning "No MSOL user found for $UPN."
+                } else {
+                    $userId = $UPN.Substring(0,$UPN.IndexOf("@"))
+                    $newUpn = "$userId@" + $(Get-MSOLTenantName)
+                    Set-MsolUserPrincipalName -UserPrincipalName $UPN -NewUserPrincipalName $newUPN
+                    Set-Msoluser -UserPrincipalName $newUpn -ImmutableID $null
+                }
+            }
+        }
+    }
+    end {}
+}
+Export-ModuleMember -Function ConvertTo-ManagedMailbox
