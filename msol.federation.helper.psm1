@@ -233,7 +233,7 @@ function ConvertTo-ManagedMailbox {
 }
 Export-ModuleMember -Function ConvertTo-ManagedMailbox
 
-Function ConvertFrom-ImmutableId {
+function ConvertFrom-ImmutableId {
     [CmdletBinding()]
     param (
 	    [Parameter(ValueFromPipeline,Mandatory = $true)][string]$Value
@@ -390,7 +390,7 @@ Function ConvertFrom-ImmutableId {
     }
 
     If (-not($identified)) {
-	    Write-warning 'Value that was neither an ImmutableID (ended with ==), a DN (started with "CN={"), a GUID, a HEX-value nor a Decimal-value.'
+	    Write-warning 'Value was neither an ImmutableID (ended with ==), a DN (started with "CN={"), a GUID, a HEX-value, nor a Decimal-value.'
     } else {
         $converted = New-Object PSObject
         $converted | Add-Member Noteproperty Decimal $dec
