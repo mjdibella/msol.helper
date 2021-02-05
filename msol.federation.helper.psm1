@@ -9,14 +9,22 @@ function Backup-MSOLFederationSettings {
     }
     if ($domain -eq "") {
         $domains = Get-MsolDomain | where Authentication -eq "Federated"
-        if ($domains.count -gt 1) {
-            Write-Warning "Multiple federated domains present. Exporting first domain. Use -domain to specify other domains."
+        if ($domains.count -lt 1) {
+            Write-Warning "No federated domains present."
+        } elseif ($domains.count -gt 1) {
+            Write-Warning "Multiple federated domains present. Exporting $domain. Use -domain to specify other domains."
         }
         $domain = ($domains | select-object -first 1 -wait).name
     }
-    $federationsettings = Get-MsolDomainFederationSettings -domain $domain
-    $federationsettings | add-member -NotePropertyName federatedDomain -NotePropertyValue $domain
-    $federationsettings | ConvertTo-JSON | Out-File $filename
+    if ($domain -ne "") {
+        if ((Get-MsolDomain -DomainName $domain).Authentication -eq "Managed") {
+            Write-warning "Domain $domain is not federated."
+        } else {
+            $federationsettings = Get-MsolDomainFederationSettings -domain $domain
+            $federationsettings | add-member -NotePropertyName federatedDomain -NotePropertyValue $domain
+            $federationsettings | ConvertTo-JSON | Out-File $filename
+        }
+    }
 }
 Export-ModuleMember -Function Backup-MSOLFederationSettings
 
@@ -136,7 +144,10 @@ function ConvertTo-FederatedMailbox {
     # Get-MSOLUser | ConvertTo-FederatedMailbox
     [cmdletbinding()]
     param(
-        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true,ParameterSetName="byUPN")][string[]]$UserPrincipalName
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true,ParameterSetName="byUPN")][string[]]$UserPrincipalName,
+        [Parameter()][string]$aDAttribute = 'userPrincipalName',
+        [Parameter()][string]$mSOLAttribute = 'UserPrincipalName',
+        [Parameter()][string]$sourceAnchor = 'objectGUID'
     )
     begin {
         Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
@@ -153,27 +164,27 @@ function ConvertTo-FederatedMailbox {
     process {
         if ($MSOLConnected -eq $True) {
             foreach ($UPN in $UserPrincipalName) {
-                $ADFilter = "userPrincipalName -eq '$($UPN)'"
-                $ADUser = Get-ADUser -Filter $ADFilter -Properties mS-DS-ConsistencyGuid
-                if ($ADUser -eq $null) {
-                    Write-Warning "No AD user found for $UPN."
+                $MSOLUser = Get-MSOLUser -UserPrincipalName $UPN -ErrorAction SilentlyContinue
+                if ($MSOLUser -eq $null) {
+                    Write-Warning "No MSOL user found for $UPN."
                 } else {
-                    if ($AdUser.'mS-DS-ConsistencyGuid' -eq $null) {
-                        $ImmutableId = $AdUser.ObjectGuid.Guid
+                    if ($MSOLUser.ImmutableId -ne $null) {
+                        Write-Warning "ImmutableID already set for $UPN."
                     } else {
-                        $ImmutableId = ([GUID]$AdUser.'mS-DS-ConsistencyGuid').Guid
-                    }
-                    $MSOLUser = Get-MSOLUser -UserPrincipalName $UPN -ErrorAction SilentlyContinue
-                    if ($MSOLUser -eq $null) {
-                        Write-Warning "No MSOL user found for $UPN."
-                    } else {
-                        if ($MSOLUser.ImmutableId -ne $null) {
-                            Write-Warning "ImmutableID already set for $UPN."
-                        } else { 
-                            Set-MsolUser –UserPrincipalName $UPN –ImmutableID $ImmutableId
+                        $ADFilter = "$aDAttribute -eq '$($MSOLUser.$mSOLAttribute)'"
+                        $ADUser = Get-ADUser -Filter $ADFilter -Properties $sourceAnchor
+                        if ($ADUser -eq $null) {
+                            Write-Warning "No AD user found with $aDAttribute $($MSOLUser.$mSOLAttribute)."
+                        } else {
+                            if ($($AdUser.$sourceAnchor) -eq $null) {
+                                Write-Warning "Source anchor $sourceAnchor is null for $AdUser.DistinguishedName."
+                            } else { 
+                                Set-MsolUser –UserPrincipalName $UPN –ImmutableID $($AdUser.$sourceAnchor)
+                                Set-MsolUserPrincipalName -UserPrincipalName $UPN -NewUserPrincipalName $($AdUser.userPrincipalName)
+                            }
                         }
                     }
-                }       
+                }
             }
         }
     }
@@ -213,7 +224,7 @@ function ConvertTo-ManagedMailbox {
                     $userId = $UPN.Substring(0,$UPN.IndexOf("@"))
                     $newUpn = "$userId@" + $(Get-MSOLTenantName)
                     Set-MsolUserPrincipalName -UserPrincipalName $UPN -NewUserPrincipalName $newUPN
-                    Set-Msoluser -UserPrincipalName $newUpn -ImmutableID $null
+                    Set-Msoluser -UserPrincipalName $newUpn -ImmutableID ''
                 }
             }
         }
@@ -221,3 +232,209 @@ function ConvertTo-ManagedMailbox {
     end {}
 }
 Export-ModuleMember -Function ConvertTo-ManagedMailbox
+
+Function ConvertFrom-ImmutableId {
+    [CmdletBinding()]
+    param (
+	    [Parameter(ValueFromPipeline,Mandatory = $true)][string]$Value
+    )
+
+    # identification helper functions
+    function isGUID ($data) { 
+	    try {
+            $guid = [GUID]$data 
+		    return 1 
+	    } catch { 
+            return 0
+        } 
+    }
+
+    function isBase64 ($data) { 
+	    try { 	
+            $decodedII = [system.convert]::frombase64string($data) 
+            return 1
+        } catch { 
+            return 0
+        } 
+    }
+
+    function isHEX ($data) { 
+        try {
+     	    $decodedHEX = "$data" -split ' ' | foreach-object { if ($_) {[System.Convert]::ToByte($_,16)}}
+		    return 1
+        } catch { 
+            return 0 
+        } 
+    }
+
+    function isDN ($data) { 
+	    If ($data.ToLower().StartsWith("cn={")) {
+		    return 1
+        } else {
+            return 0 
+        }
+    }
+
+    # conversion functions
+    function ConvertIItoDecimal ($data) {
+	    if (isBase64 $data) {
+		    $dec = ([system.convert]::FromBase64String("$data") | ForEach-Object ToString) -join ' '
+		    return $dec
+	    }
+    }
+
+    function ConvertIIToHex ($data) {
+	    if (isBase64 $data) {
+		    $hex = ([system.convert]::FromBase64String("$data") | ForEach-Object ToString X2) -join ' '
+		    return $hex
+	    }	
+    }
+
+    function ConvertIIToGuid ($data) {
+	    if (isBase64 $data) {
+		    $guid = [system.convert]::FromBase64String("$data")
+		    return [guid]$guid
+	    }
+    }
+
+    function ConvertHexToII ($data) {
+	    if (isHex $data) {
+		    $bytearray = "$data" -split ' ' | foreach-object { if ($_) {[System.Convert]::ToByte($_,16)}}
+		    $ImmID = [system.convert]::ToBase64String($bytearray)
+		    return $ImmID
+	    }
+    }
+
+    function ConvertIIToDN ($data) {
+	    if (isBase64 $data) {
+		    $enc = [system.text.encoding]::utf8
+		    $result = $enc.getbytes($data)
+		    $dn = $result | foreach { ([convert]::ToString($_,16)) }
+		    $dn = $dn -join ''
+		    return "CN={$dn}"
+	    }
+    }
+
+    function ConvertDNtoII ($data) {
+	    if (isDN $data) {
+		    $hexstring = $data.replace("CN={","")
+		    $hexstring = $hexstring.replace("}","")
+		    $array = @{}
+		    $array = $hexstring -split "(..)" | ? {$_}
+		    $ImmID = $array | FOREACH { [CHAR][BYTE]([CONVERT]::ToInt16($_,16))}
+		    $ImmID = $ImmID -join ''
+		    return $ImmID
+	    }
+    }
+
+    function ConvertGUIDToII ($data) {
+	    if (isGUID $data) {
+		    $guid = [GUID]$data
+    		    $bytearray = $guid.tobytearray()
+    		    $ImmID = [system.convert]::ToBase64String($bytearray)
+		    return $ImmID
+	    }
+    }
+
+    # from byte string (converted to byte array)
+    If ( ($value -replace ' ','') -match "^[\d\.]+$") {
+	    $bytearray = ("$value" -split ' ' | foreach-object {[System.Convert]::ToByte($_)})
+	    $HEXID = ($bytearray| ForEach-Object ToString X2) -join ' '
+	    $identified = "1"
+	    $ImmID = ConvertHexToII $HEXID
+	    $dn = ConvertIIToDN $ImmID
+	    $GUIDImmutableID = ConvertIIToGuid $ImmID
+    }
+
+    # from hex
+    If ($value -match " ") {
+	    If ( ($value -replace ' ','') -match "^[\d\.]+$") {
+		    Return
+	    }
+	    $identified = "1"
+	    $ImmID = ConvertHexToII $value
+	    $dec = ConvertIItoDecimal $ImmID
+	    $dn = ConvertIIToDN $ImmID
+	    $GUIDImmutableID = ConvertIIToGuid $ImmID
+        $HEXID = $Value
+    }
+
+    # from immutableid
+    If ($value.EndsWith("==")) {
+	    $identified = "1"
+	    $dn = ConvertIIToDn $Value	
+	    $HEXID = ConvertIIToHex $Value
+	    $GUIDImmutableID = ConvertIIToGuid $Value
+	    $dec = ConvertIItoDecimal $value
+        $ImmID = $Value
+    }
+
+    # from  dn
+    If ($value.ToLower().StartsWith("cn={")) {
+	    $identified = "1"
+	    $ImmID = ConvertDNToII $Value
+	    $HEXID = ConvertIIToHex $ImmID
+	    $GUIDImmutableID = ConvertIIToGuid $ImmID
+	    $dec = ConvertIItoDecimal $ImmID
+        $DN = $Value
+    }
+
+    # from guid
+    if ( isGuid $Value) {
+	    $identified = "1"
+	    $ImmID = ConvertGUIDToII $Value
+	    $dn = ConvertIIToDN $ImmID
+	    $HEXID = ConvertIIToHex $ImmID
+	    $dec = ConvertIItoDecimal $ImmID
+        $GUIDImmutableID = $Value
+    }
+
+    If (-not($identified)) {
+	    Write-warning 'Value that was neither an ImmutableID (ended with ==), a DN (started with "CN={"), a GUID, a HEX-value nor a Decimal-value.'
+    } else {
+        $converted = New-Object PSObject
+        $converted | Add-Member Noteproperty Decimal $dec
+        $converted | Add-Member Noteproperty String $ImmID
+        $converted | Add-Member Noteproperty HEX $HEXID
+        $converted | Add-Member Noteproperty DN $dn
+        $converted | Add-Member Noteproperty GUID $GUIDImmutableID
+        return $converted
+    }
+}
+Export-ModuleMember -Function ConvertFrom-ImmutableId
+
+function Find-SourceAnchor {
+    [cmdletbinding()]
+    param(
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true)][string]$ImmutableId
+    )
+    $attributeList = ('objectGuid','mS-DS-ConsistencyGuid','msDS-sourceAnchor')
+    foreach ($searchAttribute in $attributeList) {
+        switch ($searchAttribute) {
+            'objectGuid' {
+                $searchValue = (ConvertFrom-ImmutableId -Value $ImmutableId).GUID
+            }
+            default {
+                $searchValue = '\' + (ConvertFrom-ImmutableId -Value $ImmutableId).Hex -replace ' ','\'
+            }
+        }
+        $LDAPFilter = "($searchAttribute=$searchValue)"
+        $ADUser = Get-ADUser -LDAPFilter $LDAPFilter
+        if ($ADUser -ne $null) {
+            $results = New-Object PSObject
+            $results | Add-Member Noteproperty Name $ADUser.Name
+            $results | Add-Member Noteproperty UserPrincipalName $ADUser.UserPrincipalName
+            $results | Add-Member Noteproperty DistinguishedName $ADUser.DistinguishedName
+            $results | Add-Member Noteproperty SourceAnchor $searchAttribute
+            $results | Add-Member Noteproperty SearchValue $searchValue
+            $results | Add-Member Noteproperty searchFilter $LDAPFilter
+            break
+        }
+    }
+    if ($results -ne $null) {
+        return $results
+    } else {
+        write-warning "No AD user found for that ImmutableId."
+    }
+}
+Export-ModuleMember -Function Find-SourceAnchor
