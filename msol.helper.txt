@@ -1,10 +1,40 @@
 Backup-MSOLFederationSettings: backs up federation configuration to a json file
+	-filename mandatory, name of file to save settings to
+	-domain optional, name of domain to backup, defaults to first federated domain
+	
 Restore-MSOLFederationSettings: restores federation configuration from a json file
+	-filename mandatory, name of file to restore settings from 
+	
 ConvertFrom-FederationMetaData: converts federation metadata to PSObject
+	-filename optional, import settings from metadata file 
+	-url optional retreive metadata settings from web
+	
 Get-MSOLFederationScript: generates a federation configuration script from metadata
+	-filename mandatory if not using -url, import settings from metadata file 
+	-url mandatory if not using -filename, retreive metadata settings from web
+	-domain mandatory, name of federated domain
+	-brand optional, branded name of federated organization, defaults to domain name
+
 Restore-MSOLFedSetFromMetadata: restores federation configuration from metadata
+	-filename mandatory if not using -url, import settings from metadata file 
+	-url mandatory if not using -filename, retreive metadata settings from web
+	-domain mandatory, name of federated domain
+	-brand optional, branded name of federated organization, defaults to domain name
+
 ConvertTo-FederatedMailbox: converts a managed mailbox to federated
+	-userPrincipalName mandatory, UPN of managed mailbox to convert to federated
+	-aDAttribute optional, name of AD attribute containing AD user identity, defaults to userPrincipalName
+	-MSOLAttribute optional, name of Azure attribute contain value to find user in AD, defaults to UserPrincipalName
+	-sourceAnchor optional, name of AD attribute containing value to copy to Azure ImmutableId, defaults to objectGuid
+
 Get-MSOLTenantName: returns the MSOnline tenant name
+
 ConvertTo-ManagedMailbox: converts a federated mailbox to managed
+	-userPrincipalName mandatory, UPN of federated mailbox to convert to managed
+	-upnAttribute optional, name of AD attribute containing new MSOL user identity, defaults to existing username@msol-tenant-name
+
 ConvertFrom-ImmutableId: converts ImmutableId into different formats
+	-value mandatory, immutableId value to convert
+	
 Find-SourceAnchor: searches the directory by ImmutableId and returns the sourceAnchor
+	-value mandatory, immutableId value to search for in AD

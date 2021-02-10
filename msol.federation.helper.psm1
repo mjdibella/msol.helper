@@ -178,8 +178,9 @@ function ConvertTo-FederatedMailbox {
                         } else {
                             if ($($AdUser.$sourceAnchor) -eq $null) {
                                 Write-Warning "Source anchor $sourceAnchor is null for $AdUser.DistinguishedName."
-                            } else { 
-                                Set-MsolUser –UserPrincipalName $UPN –ImmutableID $($AdUser.$sourceAnchor)
+                            } else {
+                                $immutableID = (ConvertFrom-ImmutableId -Value $AdUser.$sourceAnchor).String
+                                Set-MsolUser –UserPrincipalName $UPN –ImmutableID $immutableId
                                 Set-MsolUserPrincipalName -UserPrincipalName $UPN -NewUserPrincipalName $($AdUser.userPrincipalName)
                             }
                         }
@@ -200,7 +201,8 @@ Export-ModuleMember -Function Get-MSOLTenantName
 function ConvertTo-ManagedMailbox {
     [cmdletbinding()]
     param(
-        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true,ParameterSetName="byUPN")][string[]]$UserPrincipalName
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory=$true,ParameterSetName="byUPN")][string[]]$UserPrincipalName,
+        [Parameter()][string]$upnAttribute
     )
     begin {
         Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
@@ -221,10 +223,18 @@ function ConvertTo-ManagedMailbox {
                 if ($MSOLUser -eq $null) {
                     Write-Warning "No MSOL user found for $UPN."
                 } else {
-                    $userId = $UPN.Substring(0,$UPN.IndexOf("@"))
-                    $newUpn = "$userId@" + $(Get-MSOLTenantName)
-                    Set-MsolUserPrincipalName -UserPrincipalName $UPN -NewUserPrincipalName $newUPN
-                    Set-Msoluser -UserPrincipalName $newUpn -ImmutableID ''
+                    if ($upnAttribute -eq '') {
+                        $userId = $UPN.Substring(0,$UPN.IndexOf("@"))
+                        $newUpn = "$userId@" + $(Get-MSOLTenantName)
+                    } else {
+                        $newUpn = (Get-ADUser -filter "userPrincipalName -eq '$($UserPrincipalName)'" -properties $upnAttribute).$upnAttribute
+                    }
+                    if ($newUpn -eq '') {
+                        Write-Warning "Cannot convert mailbox to null UserPrincipalName." 
+                    } else {
+                        Set-MsolUserPrincipalName -UserPrincipalName $UPN -NewUserPrincipalName $newUPN
+                        Set-Msoluser -UserPrincipalName $newUpn -ImmutableID ''
+                    }
                 }
             }
         }
@@ -410,14 +420,7 @@ function Find-SourceAnchor {
     )
     $attributeList = ('objectGuid','mS-DS-ConsistencyGuid','msDS-sourceAnchor')
     foreach ($searchAttribute in $attributeList) {
-        switch ($searchAttribute) {
-            'objectGuid' {
-                $searchValue = (ConvertFrom-ImmutableId -Value $ImmutableId).GUID
-            }
-            default {
-                $searchValue = '\' + (ConvertFrom-ImmutableId -Value $ImmutableId).Hex -replace ' ','\'
-            }
-        }
+        $searchValue = '\' + (ConvertFrom-ImmutableId -Value $ImmutableId).Hex -replace ' ','\'
         $LDAPFilter = "($searchAttribute=$searchValue)"
         $ADUser = Get-ADUser -LDAPFilter $LDAPFilter
         if ($ADUser -ne $null) {
