@@ -1,0 +1,10 @@
+Backup-MSOLFederationSettings: backs up federation configuration to a json file
+Restore-MSOLFederationSettings: restores federation configuration from a json file
+ConvertFrom-FederationMetaData: converts federation metadata to PSObject
+Get-MSOLFederationScript: generates a federation configuration script from metadata
+Restore-MSOLFedSetFromMetadata: restores federation configuration from metadata
+ConvertTo-FederatedMailbox: converts a managed mailbox to federated
+Get-MSOLTenantName: returns the MSOnline tenant name
+ConvertTo-ManagedMailbox: converts a federated mailbox to managed
+ConvertFrom-ImmutableId: converts ImmutableId into different formats
+Find-SourceAnchor: searches the directory by ImmutableId and returns the sourceAnchor
