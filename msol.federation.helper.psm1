@@ -94,10 +94,6 @@ function Get-MSOLFederationScript {
         [Parameter(Mandatory=$true)][string]$domain,
         [Parameter(Mandatory=$false)][string]$brand
     )
-    Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
-    if($?) {} else {
-        Connect-MSOLService
-    }
     if ($filename -ne $null) {
         $federationSettings = ConvertFrom-FederationMetadata -filename $filename
     } elseif ($bundleId -ne $null) {
@@ -111,6 +107,11 @@ function Get-MSOLFederationScript {
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
     }
+    write-output "# connect to MSOL if necessary"
+    write-output "Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null"
+    write-output "if(`$?) {} else {"
+    write-output "    Connect-MSOLService"
+    write-output "}"
     write-output "# can't federate the default domain, so set the tenant name domain default instead"
     write-output "if ((Get-MSOLDomain | Where-Object {`$_.IsDefault -eq $True}).Name -eq $domain) {"
     write-output "    Set-MsolDomain -Name (Get-MSOLDomain | Where-Object {`$_.Name -like '*.onmicrosoft.com' -and `$_.Name -NotLike '*.mail.onmicrosoft.com'}).Name -IsDefault"
