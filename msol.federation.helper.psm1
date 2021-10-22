@@ -1,3 +1,13 @@
+function Get-MSOLTenantName {
+    (Get-MSOLDomain | Where-Object {$_.Name -like '*.onmicrosoft.com' -and $_.Name -NotLike '*.mail.onmicrosoft.com'}).Name
+}
+Export-ModuleMember -Function Get-MSOLTenantName
+
+function Get-MSOLDefaultDomain {
+    (Get-MSOLDomain | Where-Object {$_.IsDefault -eq $True}).Name
+}
+Export-ModuleMember -Function Get-MSOLDefaultDomain
+
 function Backup-MSOLFederationSettings {
     param(
         [Parameter(Mandatory=$true)][string]$filename,
@@ -37,6 +47,7 @@ function Restore-MSOLFederationSettings {
         Connect-MSOLService
     }
     $federationSettings = get-content $filename | convertfrom-json
+    Set-MsolDomain -Name $(Get-MSOLTenantName) -IsDefault
     Set-MsolDomainAuthentication -DomainName $federationSettings.federatedDomain -Authentication Managed
     Set-MsolDomainAuthentication -DomainName $federationSettings.federatedDomain -Authentication Federated `
         -FederationBrandName $federationSettings.federationBrandName -IssuerUri $federationSettings.issuerUri `
@@ -83,6 +94,10 @@ function Get-MSOLFederationScript {
         [Parameter(Mandatory=$true)][string]$domain,
         [Parameter(Mandatory=$false)][string]$brand
     )
+    Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null
+    if($?) {} else {
+        Connect-MSOLService
+    }
     if ($filename -ne $null) {
         $federationSettings = ConvertFrom-FederationMetadata -filename $filename
     } elseif ($bundleId -ne $null) {
@@ -96,13 +111,20 @@ function Get-MSOLFederationScript {
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
     }
+    write-output "# can't federate the default domain, so set the tenant name domain default instead"
+    write-output "if ((Get-MSOLDomain | Where-Object {`$_.IsDefault -eq $True}).Name -eq $domain) {"
+    write-output "    Set-MsolDomain -Name (Get-MSOLDomain | Where-Object {`$_.Name -like '*.onmicrosoft.com' -and `$_.Name -NotLike '*.mail.onmicrosoft.com'}).Name -IsDefault"
+    write-output "}"
+    write-output "# reset authentication settings to defaults"
     write-output "Set-MsolDomainAuthentication -DomainName $($federationSettings.DomainName) -Authentication Managed"
+    write-output "# federate the domain"
     write-output "Set-MsolDomainAuthentication -DomainName $($federationSettings.DomainName) ``"
     write-output "    -Authentication $($federationSettings.Authentication) ``"
     write-output "    -IssuerUri $($federationSettings.IssuerUri) ``"
     write-output "    -FederationBrandName `"$($federationSettings.FederationBrandName)`" ``"
     write-output "    -PassiveLogOnUri $($federationSettings.PassiveLogOnUri) ``"
     write-output "    -ActiveLogOnUri $($federationSettings.ActiveLogOnUri) ``"
+    write-output "    -LogOffURI $($federationSettings.LogOffUri) ``"
     write-output "    -MetadataExchangeUri $($federationSettings.metadataExchangeUri) ``"
     write-output "    -SigningCertificate $($federationSettings.SigningCertificate)"
 }
@@ -132,10 +154,12 @@ function Restore-MSOLFedSetFromMetadata {
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
     }
+    Set-MsolDomain -Name $(Get-MSOLTenantName) -IsDefault
     Set-MsolDomainAuthentication -DomainName $domain -Authentication Managed
-    Set-MsolDomainAuthentication -DomainName $federationSettings.DomainName -Authentication $federationSettings.Authentication -IssuerUri $federationSettings.IssuerUri `
-        -FederationBrandName $federationSettings.FederationBrandName -PassiveLogOnUri $federationSettings.PassiveLogOnUri `
-        -ActiveLogOnUri $federationSettings.ActiveLogOnUri -MetadataExchangeUri $federationSettings.metadataExchangeUri -SigningCertificate $federationSettings.SigningCertificate
+    Set-MsolDomainAuthentication -DomainName $federationSettings.DomainName -Authentication $federationSettings.Authentication `
+        -IssuerUri $federationSettings.IssuerUri -FederationBrandName $federationSettings.FederationBrandName `
+        -PassiveLogOnUri $federationSettings.PassiveLogOnUri -ActiveLogOnUri $federationSettings.ActiveLogOnUri `
+        -MetadataExchangeUri $federationSettings.metadataExchangeUri -SigningCertificate $federationSettings.SigningCertificate
 }
 Export-ModuleMember -Function Restore-MSOLFedSetFromMetadata
 
@@ -192,11 +216,6 @@ function ConvertTo-FederatedMailbox {
     end {}
 }
 Export-ModuleMember -Function ConvertTo-FederatedMailbox
-
-function Get-MSOLTenantName {
-    (Get-MSOLDomain | Where-Object {$_.Name -like '*.onmicrosoft.com' -and $_.Name -NotLike '*.mail.onmicrosoft.com'}).Name
-}
-Export-ModuleMember -Function Get-MSOLTenantName
 
 function ConvertTo-ManagedMailbox {
     [cmdletbinding()]
