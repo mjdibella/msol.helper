@@ -68,12 +68,12 @@ function ConvertFrom-FederationMetaData {
         [Parameter()][string]$filename,
         [Parameter()][string]$Url
     )
-    if ($filename -ne $null) {
+    if ($filename) {
         $Metadata = Get-Content -Path $filename
         [xml]$IdPMetadata = $Metadata
-    } elseif ($Url -ne $null) {
+    } elseif ($Url) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12
-        $Metadata = Invoke-RestMethod -Uri $Url
+        $Metadata = (Invoke-WebRequest -Uri $Url).Content
         [xml]$IdPMetadata = $Metadata
     }
     $federationSettings = New-Object PSObject
@@ -94,9 +94,9 @@ function Get-MSOLFederationScript {
         [Parameter(Mandatory=$true)][string]$domain,
         [Parameter(Mandatory=$false)][string]$brand
     )
-    if ($filename -ne $null) {
+    if ($filename) {
         $federationSettings = ConvertFrom-FederationMetadata -filename $filename
-    } elseif ($bundleId -ne $null) {
+    } elseif ($Url) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12
         $federationSettings = ConvertFrom-FederationMetadata -Url $Url
     }
@@ -107,13 +107,14 @@ function Get-MSOLFederationScript {
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
     }
+    $issuerURI = $federationSettings.IssuerURI
     write-output "# connect to MSOL if necessary"
     write-output "Get-MsolDomain -ErrorAction SilentlyContinue | Out-Null"
     write-output "if(`$?) {} else {"
     write-output "    Connect-MSOLService"
     write-output "}"
     write-output "# can't federate the default domain, so set the tenant name domain default instead"
-    write-output "if ((Get-MSOLDomain | Where-Object {`$_.IsDefault -eq $True}).Name -eq $domain) {"
+    write-output "if ((Get-MSOLDomain | Where-Object {`$_.IsDefault -eq `$True}).Name -eq '$domain') {"
     write-output "    Set-MsolDomain -Name (Get-MSOLDomain | Where-Object {`$_.Name -like '*.onmicrosoft.com' -and `$_.Name -NotLike '*.mail.onmicrosoft.com'}).Name -IsDefault"
     write-output "}"
     write-output "# reset authentication settings to defaults"
