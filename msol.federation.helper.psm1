@@ -139,9 +139,9 @@ function Restore-MSOLFedSetFromMetadata {
         [Parameter(Mandatory=$true)][string]$domain,
         [Parameter(Mandatory=$false)][string]$brand
     )
-    if ($filename -ne $null) {
+    if ($filename) {
         $federationSettings = ConvertFrom-FederationMetadata -filename $filename
-    } elseif ($bundleId -ne $null) {
+    } elseif ($Url) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12
         $federationSettings = ConvertFrom-FederationMetadata -Url $Url
     }
@@ -151,17 +151,20 @@ function Restore-MSOLFedSetFromMetadata {
     }
     $federationSettings | Add-Member Noteproperty DomainName $domain
     $federationSettings | Add-Member Noteproperty Authentication "Federated"
-    if ($brand -ne "") {
+    if ($brand) {
         $federationSettings | Add-Member Noteproperty FederationBrandName $brand
     } else {
         $federationSettings | Add-Member Noteproperty FederationBrandName $domain
     }
-    Set-MsolDomain -Name $(Get-MSOLTenantName) -IsDefault
+    if ((Get-MSOLDomain | Where-Object {`$_.IsDefault -eq `$True}).Name -eq '$domain') {
+        Set-MsolDomain -Name (Get-MSOLDomain | Where-Object {`$_.Name -like '*.onmicrosoft.com' -and `$_.Name -NotLike '*.mail.onmicrosoft.com'}).Name -IsDefault
+    }
     Set-MsolDomainAuthentication -DomainName $domain -Authentication Managed
     Set-MsolDomainAuthentication -DomainName $federationSettings.DomainName -Authentication $federationSettings.Authentication `
         -IssuerUri $federationSettings.IssuerUri -FederationBrandName $federationSettings.FederationBrandName `
         -PassiveLogOnUri $federationSettings.PassiveLogOnUri -ActiveLogOnUri $federationSettings.ActiveLogOnUri `
-        -MetadataExchangeUri $federationSettings.metadataExchangeUri -SigningCertificate $federationSettings.SigningCertificate
+        -LogOffURI $federationSettings.LogOffUri -MetadataExchangeUri $federationSettings.metadataExchangeUri `
+        -SigningCertificate $federationSettings.SigningCertificate
 }
 Export-ModuleMember -Function Restore-MSOLFedSetFromMetadata
 
@@ -462,3 +465,15 @@ function Find-SourceAnchor {
     }
 }
 Export-ModuleMember -Function Find-SourceAnchor
+
+function Get-MSOLFederationMetadata {
+    param(
+        [Parameter(Mandatory=$true)][string]$filename
+    )
+    $filepath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($filename)
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12
+    $xml = (Invoke-WebRequest -Uri 'https://nexus.microsoftonline-p.com/federationmetadata/saml20/federationmetadata.xml').Content
+    $Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding $False
+    [System.IO.File]::WriteAllLines($filepath, $xml, $Utf8NoBomEncoding)
+}
+Export-ModuleMember Get-MSOLFederationMetadata

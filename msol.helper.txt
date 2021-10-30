@@ -38,3 +38,6 @@ ConvertFrom-ImmutableId: converts ImmutableId into different formats
 	
 Find-SourceAnchor: searches the directory by ImmutableId and returns the sourceAnchor
 	-value mandatory, immutableId value to search for in AD
+
+Get-MSOLFederationMetadata: retreived MSOL metadata from known URL and stores in file
+    -filename mandatory, file path/name to store metadata
