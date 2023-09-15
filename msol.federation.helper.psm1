@@ -61,6 +61,30 @@ function Restore-MSOLFederationSettings {
 }
 Export-ModuleMember -Function Restore-MSOLFederationSettings
 
+function Get-SigningCertFromMetadata {
+    [cmdletbinding()]
+    param(
+        [Parameter(ValueFromPipeline)][xml]$IdPMetadata,
+        [Parameter()][string]$filename,
+        [Parameter()][string]$Url
+    )
+    if ($filename) {
+        $Metadata = Get-Content -Path $filename
+        [xml]$IdPMetadata = $Metadata
+    } elseif ($Url) {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12
+        $Metadata = (Invoke-WebRequest -Uri $Url).Content
+        [xml]$IdPMetadata = $Metadata
+    }
+    $signingCertificateData = ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.KeyDescriptor |  ? {$_.use -eq "signing"} | Select-Object -Last 1 | % {$_.KeyInfo.X509Data.X509Certificate})
+    $signingCertificateData = $signingCertificateData.Replace("`n","")
+    $signingCertificateData = $signingCertificateData.Replace("`r","")
+    "-----BEGIN CERTIFICATE-----"
+    $signingCertificateData -Split '(.{64})' | ? {$_}
+    "-----END CERTIFICATE-----"
+}
+Export-ModuleMember -Function Get-SigningCertFromMetadata
+
 function ConvertFrom-FederationMetaData {
     [cmdletbinding()]
     param(
@@ -81,7 +105,11 @@ function ConvertFrom-FederationMetaData {
     $federationSettings | Add-Member Noteproperty PassiveLogOnUri ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.SingleSignOnService | ? {$_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"} | % {$_.Location})
     $federationSettings | Add-Member Noteproperty ActiveLogOnUri $federationSettings.PassiveLogOnUri
     $federationSettings | Add-Member Noteproperty LogOffUri ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.SingleLogOutService | ? {$_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"} | % {$_.Location})
-    $federationSettings | Add-Member Noteproperty MetadataExchangeUri $IdPMetadata.EntityDescriptor.AdditionalMetadataLocation.'#text'
+    if ($url -and (-not ($IdPMetadata.EntityDescriptor.AdditionalMetadataLocation.'#text'))) {
+        $federationSettings | Add-Member Noteproperty MetadataExchangeUri $Url
+    } else {
+        $federationSettings | Add-Member Noteproperty MetadataExchangeUri $IdPMetadata.EntityDescriptor.AdditionalMetadataLocation.'#text'
+    }
     $federationSettings | Add-Member Noteproperty SigningCertificate ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.KeyDescriptor |  ? {$_.use -eq "signing"} | Select-Object -Last 1 | % {$_.KeyInfo.X509Data.X509Certificate})
     $federationsettings
 }
@@ -89,6 +117,7 @@ Export-ModuleMember -Function ConvertFrom-FederationMetaData
 
 function Get-MSOLFederationScript {
     param(
+        [cmdletbinding(DefaultParameterSetName='byUrl')]
         [Parameter(Mandatory=$true,ParameterSetName="byFile")][string]$filename,
         [Parameter(Mandatory=$true,ParameterSetName="byUrl")][string]$Url,
         [Parameter(Mandatory=$true)][string]$domain,
@@ -127,7 +156,11 @@ function Get-MSOLFederationScript {
     write-output "    -PassiveLogOnUri $($federationSettings.PassiveLogOnUri) ``"
     write-output "    -ActiveLogOnUri $($federationSettings.ActiveLogOnUri) ``"
     write-output "    -LogOffURI $($federationSettings.LogOffUri) ``"
-    write-output "    -MetadataExchangeUri $($federationSettings.metadataExchangeUri) ``"
+    if ($url -and (-not ($federationSettings.metadataExchangeUri))) {
+        write-output "    -MetadataExchangeUri $($url) ``"
+    } else {
+        write-output "    -MetadataExchangeUri $($federationSettings.metadataExchangeUri) ``"
+    }
     write-output "    -SigningCertificate $($federationSettings.SigningCertificate)"
 }
 Export-ModuleMember -Function Get-MSOLFederationScript

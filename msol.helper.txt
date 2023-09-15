@@ -9,6 +9,10 @@ ConvertFrom-FederationMetaData: converts federation metadata to PSObject
 	-filename optional, import settings from metadata file 
 	-url optional retreive metadata settings from web
 	
+Get-SigningCertFromMetadata: exports IdP or SP siging certificate from metadata to pipeline
+	-filename optional, import settings from metadata file 
+	-url optional retreive metadata settings from web
+
 Get-MSOLFederationScript: generates a federation configuration script from metadata
 	-filename mandatory if not using -url, import settings from metadata file 
 	-url mandatory if not using -filename, retreive metadata settings from web
