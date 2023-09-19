@@ -77,11 +77,16 @@ function Get-SigningCertFromMetadata {
         [xml]$IdPMetadata = $Metadata
     }
     $signingCertificateData = ($IdPMetadata.EntityDescriptor.IDPSSODescriptor.KeyDescriptor |  ? {$_.use -eq "signing"} | Select-Object -Last 1 | % {$_.KeyInfo.X509Data.X509Certificate})
-    $signingCertificateData = $signingCertificateData.Replace("`n","")
-    $signingCertificateData = $signingCertificateData.Replace("`r","")
-    "-----BEGIN CERTIFICATE-----"
-    $signingCertificateData -Split '(.{64})' | ? {$_}
-    "-----END CERTIFICATE-----"
+    if (-not ($signingCertificateData)) {
+        $signingCertificateData = ($IdPMetadata.EntityDescriptor.SPSSODescriptor.KeyDescriptor |  ? {$_.use -eq "signing"} | Select-Object -Last 1 | % {$_.KeyInfo.X509Data.X509Certificate})
+    }
+    if ($signingCertificateData) {
+        $signingCertificateData = $signingCertificateData.Replace("`n","")
+        $signingCertificateData = $signingCertificateData.Replace("`r","")
+        "-----BEGIN CERTIFICATE-----"
+        $signingCertificateData -Split '(.{64})' | ? {$_}
+        "-----END CERTIFICATE-----"
+    }
 }
 Export-ModuleMember -Function Get-SigningCertFromMetadata
 
